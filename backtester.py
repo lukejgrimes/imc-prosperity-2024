@@ -3,11 +3,15 @@ from collections import deque
 from typing import Dict, Deque
 import pandas as pd
 import numpy as np
-from round1_kalman import Trader
+from round_3.pairs import Trader
 
 STARFRUIT = "STARFRUIT"
 AMETHYSTS = "AMETHYSTS"
 SEASHELLS = "SEASHELLS"
+CHOCOLATE = "CHOCOLATE"
+STRAWBERRIES = "STRAWBERRIES"
+ROSES = "ROSES"
+GIFT_BASKET = "GIFT_BASKET"
 
 class DetailedOrder:
     def __init__(self, order: Order, trader_id: str, order_id: int):
@@ -26,19 +30,34 @@ class MatchingEngine:
         self.state = TradingState(
             "", 0, 
             {STARFRUIT: Listing(STARFRUIT, STARFRUIT, SEASHELLS),
-             AMETHYSTS: Listing(AMETHYSTS, AMETHYSTS, SEASHELLS)},
-            {STARFRUIT: OrderDepth(), AMETHYSTS: OrderDepth()},
-            {STARFRUIT: [], AMETHYSTS: []}, {STARFRUIT: [], AMETHYSTS: []},
-            {STARFRUIT: 0, AMETHYSTS: 0}, Observation({}, {})
+             AMETHYSTS: Listing(AMETHYSTS, AMETHYSTS, SEASHELLS),
+             CHOCOLATE: Listing(CHOCOLATE, CHOCOLATE, SEASHELLS),
+             STRAWBERRIES: Listing(STRAWBERRIES, STRAWBERRIES, SEASHELLS),
+             ROSES: Listing(ROSES, ROSES, SEASHELLS),
+             GIFT_BASKET: Listing(GIFT_BASKET, GIFT_BASKET, SEASHELLS)},
+            {STARFRUIT: OrderDepth(), AMETHYSTS: OrderDepth(), CHOCOLATE: OrderDepth(),
+             STRAWBERRIES: OrderDepth(), ROSES: OrderDepth(), GIFT_BASKET: OrderDepth()},
+            {STARFRUIT: [], AMETHYSTS: [], CHOCOLATE: [], STRAWBERRIES: [], ROSES: [], GIFT_BASKET: []},
+            {STARFRUIT: [], AMETHYSTS: [], CHOCOLATE: [], STRAWBERRIES: [], ROSES: [], GIFT_BASKET: []},
+            {STARFRUIT: 0, AMETHYSTS: 0, CHOCOLATE: 0, STRAWBERRIES: 0, ROSES: 0, GIFT_BASKET: 0}, 
+            Observation({}, {})
         )
         self.trader = trader
-        self.order_books = {STARFRUIT: OrderBook(), AMETHYSTS: OrderBook()}
+        self.order_books = {STARFRUIT: OrderBook(), AMETHYSTS: OrderBook(), CHOCOLATE: OrderBook(),
+             STRAWBERRIES: OrderBook(), ROSES: OrderBook(), GIFT_BASKET: OrderBook()}
         self.order_count = 0
-        self.position_limits = {STARFRUIT: 20, AMETHYSTS: 20}
+        self.position_limits = {
+            AMETHYSTS: 20,
+            STARFRUIT: 20,
+            CHOCOLATE: 250,
+            STRAWBERRIES: 350,
+            ROSES: 60,
+            GIFT_BASKET: 60
+        }
         self.timestamp = 0
         self.data = data
         self.bot_trades = bot_trades
-        self.pnl = {STARFRUIT: 0, AMETHYSTS: 0}
+        self.pnl = {STARFRUIT: 0, AMETHYSTS: 0, CHOCOLATE: 0, STRAWBERRIES: 0, ROSES: 0, GIFT_BASKET: 0}
         self.num_timestamps = iterations * 100
 
     def run_iteration(self):
@@ -51,8 +70,10 @@ class MatchingEngine:
             self.settle_position()
             return self.pnl
         # Clear Order Books
-        self.order_books = {STARFRUIT: OrderBook(), AMETHYSTS: OrderBook()}
-        self.state.order_depths = {STARFRUIT: OrderDepth(), AMETHYSTS: OrderDepth()}
+        self.order_books = {STARFRUIT: OrderBook(), AMETHYSTS: OrderBook(), CHOCOLATE: OrderBook(),
+             STRAWBERRIES: OrderBook(), ROSES: OrderBook(), GIFT_BASKET: OrderBook()}
+        self.state.order_depths = {STARFRUIT: OrderDepth(), AMETHYSTS: OrderDepth(), CHOCOLATE: OrderDepth(),
+             STRAWBERRIES: OrderDepth(), ROSES: OrderDepth(), GIFT_BASKET: OrderDepth()}
         self.timestamp += 100
 
     def match_orders(self, orders: Dict, algo: bool):
@@ -180,15 +201,15 @@ class MatchingEngine:
                     total_ask_q += order.quantity
                     valid_asks.append(order)
                 
-            if total_buy_q + self.state.position[product] > self.position_limits[product]:
+            if total_buy_q + self.state.position.get(product, 0) > self.position_limits[product]:
                 valid_bids = []
-            if total_ask_q + self.state.position[product] < -self.position_limits[product]:
+            if total_ask_q + self.state.position.get(product, 0) < -self.position_limits[product]:
                 valid_asks = []
 
             result[product] = valid_bids + valid_asks
         # Clear Trade History
-        self.state.market_trades = {STARFRUIT: [], AMETHYSTS: []}
-        self.state.own_trades = {STARFRUIT: [], AMETHYSTS: []}
+        self.state.market_trades = {STARFRUIT: [], AMETHYSTS: [], CHOCOLATE: [], STRAWBERRIES: [], ROSES: [], GIFT_BASKET: []}
+        self.state.own_trades = {STARFRUIT: [], AMETHYSTS: [], CHOCOLATE: [], STRAWBERRIES: [], ROSES: [], GIFT_BASKET: []}
         self.match_orders(result, algo=True)
 
     def get_bot_quotes(self):
@@ -219,7 +240,7 @@ class MatchingEngine:
             self.state.order_depths[product].sell_orders = sell_order_depth
 
     def get_bot_trades(self):
-        bot_orders = {STARFRUIT: [], AMETHYSTS: []}
+        bot_orders = {STARFRUIT: [], AMETHYSTS: [], CHOCOLATE: [], STRAWBERRIES: [], ROSES: [], GIFT_BASKET: []}
         trades = self.bot_trades[self.bot_trades["timestamp"] == self.timestamp]
         for i in range(len(trades)):
             trade = trades.iloc[i]
@@ -244,24 +265,28 @@ class MatchingEngine:
         self.match_orders(bot_orders, algo=False)
 
     def update_pnl(self):
-        print(self.timestamp)
         trades = self.state.own_trades
         for product in trades.keys():
             for trade in trades[product]:
                 self.pnl[product] += (trade.price * trade.quantity) if trade.seller else (trade.price * -trade.quantity)
 
-            best_bid = max(self.state.order_depths[product].buy_orders.keys())
-            best_ask = min(self.state.order_depths[product].sell_orders.keys())
+            best_bid = max(self.state.order_depths[product].buy_orders.keys()) if self.state.order_depths[product].buy_orders else 0
+            best_ask = min(self.state.order_depths[product].sell_orders.keys()) if self.state.order_depths[product].sell_orders else 0
             position = self.state.position[product]
             cur_profit = self.pnl[product] + (position * best_bid) if position >= 0 else self.pnl[product] + (position * best_ask)
+            # print(f"{product} Profit/Loss: {cur_profit}")
 
     def settle_position(self):
+        total_pnl = 0
         for product in self.pnl:
-            best_bid = max(self.state.order_depths[product].buy_orders.keys())
-            best_ask = min(self.state.order_depths[product].sell_orders.keys())
+            best_bid = max(self.state.order_depths[product].buy_orders.keys()) if self.state.order_depths[product].buy_orders else 0
+            best_ask = min(self.state.order_depths[product].sell_orders.keys()) if self.state.order_depths[product].sell_orders else 0
             position = self.state.position[product]
             self.pnl[product] += position * best_bid if position >= 0 else position * best_ask
+            total_pnl += self.pnl[product]
             print(f"{product} Profit/Loss: {self.pnl[product]}")
+        print(f"Total Profit/Loss: {total_pnl}")
+
         
 
 def backtest(iterations, trader, data, bot_trades):
@@ -275,4 +300,4 @@ def backtest(iterations, trader, data, bot_trades):
 
 if __name__ == "__main__":
     trader = Trader()
-    backtest(10000, trader, "./round-1-island-data-bottle/prices_round_1_day_-1.csv", "./round-1-island-data-bottle/trades_round_1_day_-1_nn.csv")
+    backtest(10000, trader, "round_3/round-3-island-data-bottle/prices_round_3_day_2.csv", "round_3/round-3-island-data-bottle/trades_round_3_day_2_nn.csv")
