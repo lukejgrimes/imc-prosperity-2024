@@ -197,29 +197,24 @@ class Trader:
         orchid_orders = []
         conversions = 0
 
-        adjusted_south_bid = south_bid + exportTariff + transportFees
+        adjusted_south_bid = south_bid - exportTariff - transportFees
         adjusted_south_ask = south_ask + importTariff + transportFees
 
         last_price = self.orchid_last_price if self.orchid_last_price else orchid_mid        
         prediction = self.predict_orchid_price(last_price, sunlight, humidity)
         self.orchid_last_price = orchid_mid
 
-        if prediction > best_orchid_ask + 1:
-            if adjusted_south_ask < best_orchid_ask:
-                if orchid_position < 0:
-                    conversions -= orchid_position
-                    orchid_orders.append(Order(ORCHIDS, best_orchid_bid, orchid_position))
-                else:
-                    orchid_orders.append(Order(ORCHIDS, best_orchid_ask, max_buy_vol))
-        if prediction < best_orchid_bid:
-            if adjusted_south_bid > best_orchid_bid:
-                if orchid_position > 0:
-                    conversions -= orchid_position
-                    orchid_orders.append(Order(ORCHIDS, best_orchid_ask, orchid_position)) 
-                else:
-                    orchid_orders.append(Order(ORCHIDS, best_orchid_bid, max_sell_vol)) 
+        if best_orchid_bid - adjusted_south_ask > 1:
+            if orchid_position < 0:
+                conversions -= orchid_position
+            orchid_orders.append(Order(ORCHIDS, best_orchid_bid, max_sell_vol - conversions))
 
-        return [], 0
+        elif adjusted_south_bid - best_orchid_ask > 0:
+            if orchid_position > 0:
+                conversions -= orchid_position
+            orchid_orders.append(Order(ORCHIDS, best_orchid_ask, max_buy_vol - conversions))
+
+        return orchid_orders, conversions
     
     def baskets_strategy(self, state: TradingState):
         chocolate_bids = state.order_depths[CHOCOLATE].buy_orders
